@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>My Virtual Friend</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <!-- Firebase SDKs -->
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script defer src="firebaseConfig.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div id="app-root">
+      <!-- Auth screen -->
+      <div id="auth-view" class="view active">
+        <div class="auth-card">
+          <h1 class="logo">Мой виртуальный друг</h1>
+          <div class="auth-toggle">
+            <button id="btn-show-login" class="auth-toggle-btn active">Войти</button>
+            <button id="btn-show-register" class="auth-toggle-btn">Создать аккаунт</button>
+          </div>
+
+          <form id="login-form" class="auth-form">
+            <label>
+              Email
+              <input type="email" id="login-email" required />
+            </label>
+            <label>
+              Пароль
+              <input type="password" id="login-password" required minlength="6" />
+            </label>
+            <button type="submit" class="primary-btn">Войти</button>
+          </form>
+
+          <form id="register-form" class="auth-form hidden">
+            <label>
+              Email
+              <input type="email" id="register-email" required />
+            </label>
+            <label>
+              Пароль (минимум 6 символов)
+              <input type="password" id="register-password" required minlength="6" />
+            </label>
+            <button type="submit" class="primary-btn">Создать аккаунт</button>
+          </form>
+
+          <p id="auth-error" class="error-text"></p>
+        </div>
+      </div>
+
+      <!-- Main chat screen -->
+      <div id="chat-view" class="view">
+        <header class="top-bar">
+          <div class="view-switch">
+            <button id="btn-tab-chat" class="secondary-btn active-tab">Чат</button>
+            <button id="btn-tab-stress" class="secondary-btn">Стресс-календарь</button>
+          </div>
+          <div class="role-select">
+            <label for="role">Роль собеседника:</label>
+            <select id="role">
+              <option value="friend">Друг</option>
+              <option value="sister">Сестра</option>
+              <option value="brother">Брат</option>
+              <option value="mom">Мама</option>
+              <option value="dad">Папа</option>
+              <option value="partner">Любимый человек</option>
+            </select>
+          </div>
+          <div class="topic-box">
+            <label for="topic-input">Контекст (необязательно)</label>
+            <input
+              id="topic-input"
+              type="text"
+              placeholder="Например: тревога перед экзаменом, отношения, усталость…"
+            />
+          </div>
+          <button id="btn-logout" class="secondary-btn">Выйти</button>
+        </header>
+
+        <main class="layout">
+          <!-- Chats list -->
+          <aside class="sidebar">
+            <div class="sidebar-header">
+              <h2>Мои чаты</h2>
+              <button id="btn-new-chat" class="icon-btn" title="Новый чат">+</button>
+            </div>
+            <ul id="chats-list" class="chats-list"></ul>
+          </aside>
+
+          <!-- Active chat -->
+          <section class="chat-section">
+            <div id="chat-header" class="chat-header">
+              <h2 id="chat-title">Новый чат</h2>
+              <span id="chat-role-label" class="role-pill">Друг</span>
+            </div>
+            <div id="messages-container" class="messages-container"></div>
+            <div id="typing-status" class="typing-status hidden" aria-live="polite">
+              <span id="typing-status-text" class="typing-status-text">Собеседник печатает</span>
+              <span class="typing-dots"><span></span><span></span><span></span></span>
+            </div>
+            <form id="message-form" class="message-form">
+              <textarea
+                id="message-input"
+                rows="2"
+                placeholder="Напишите, что у вас на душе..."
+                required
+              ></textarea>
+              <button type="submit" class="primary-btn">Отправить</button>
+            </form>
+          </section>
+        </main>
+      </div>
+
+      <!-- Stress calendar screen -->
+      <div id="stress-view" class="view">
+        <header class="top-bar">
+          <h2>Календарь стресса</h2>
+          <button id="btn-stress-back" class="secondary-btn">Назад к чату</button>
+        </header>
+        <main class="stress-layout">
+          <section class="stress-card">
+            <div class="stress-header">
+              <button id="btn-month-prev" class="secondary-btn">←</button>
+              <h3 id="stress-month-title"></h3>
+              <button id="btn-month-next" class="secondary-btn">→</button>
+            </div>
+            <div id="calendar-grid" class="calendar-grid"></div>
+            <div class="stress-legend">
+              <span><i class="dot low"></i>Низкий</span>
+              <span><i class="dot medium"></i>Средний</span>
+              <span><i class="dot high"></i>Высокий</span>
+            </div>
+          </section>
+          <section class="stress-card">
+            <h3 id="selected-day-title">Выберите день</h3>
+            <p id="selected-day-level">Уровень: —</p>
+            <textarea id="day-note-input" rows="4" placeholder="Краткая заметка о самочувствии..."></textarea>
+            <button id="btn-save-day-note" class="primary-btn">Добавить заметку</button>
+            <div class="notes-list-wrap">
+              <h4>Заметки за день</h4>
+              <ul id="day-notes-list" class="day-notes-list"></ul>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
+

@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /chats/{chatId} {
+      // Создание чата: userId должен совпадать с uid текущего пользователя
+      allow create: if isOwner(request.resource.data.userId);
+
+      // Чтение/изменение/удаление только владельцем документа чата
+      allow read, update, delete: if isOwner(resource.data.userId);
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      // Писать и читать сообщения может только владелец родительского чата
+      allow read, write: if isSignedIn()
+        && get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid;
+    }
+
+    match /stress_logs/{logId} {
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, update, delete: if isOwner(resource.data.userId);
+    }
+
+    match /stress_notes/{noteId} {
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, update, delete: if isOwner(resource.data.userId);
+    }
+  }
+}
