@@ -1247,4 +1247,3 @@ async function callAiApi({ role, topic, messages }) {
     return null;
   }
 }
-
