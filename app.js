@@ -42,9 +42,14 @@ const typingStatusTextEl = document.getElementById("typing-status-text");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const stressViewEl = document.getElementById("stress-view");
+const correlationViewEl = document.getElementById("correlation-view");
 const btnTabChat = document.getElementById("btn-tab-chat");
 const btnTabStress = document.getElementById("btn-tab-stress");
-const btnStressBack = document.getElementById("btn-stress-back");
+const btnTabCorrelation = document.getElementById("btn-tab-correlation");
+const btnStressToChat = document.getElementById("btn-stress-to-chat");
+const btnStressToCorrelation = document.getElementById("btn-stress-to-correlation");
+const btnCorrelationToChat = document.getElementById("btn-correlation-to-chat");
+const btnCorrelationToStress = document.getElementById("btn-correlation-to-stress");
 const calendarGridEl = document.getElementById("calendar-grid");
 const stressMonthTitleEl = document.getElementById("stress-month-title");
 const btnMonthPrev = document.getElementById("btn-month-prev");
@@ -54,6 +59,10 @@ const selectedDayLevelEl = document.getElementById("selected-day-level");
 const dayNoteInput = document.getElementById("day-note-input");
 const btnSaveDayNote = document.getElementById("btn-save-day-note");
 const dayNotesListEl = document.getElementById("day-notes-list");
+const btnRecomputeCorrelation = document.getElementById("btn-recompute-correlation");
+const correlationTableBodyEl = document.getElementById("correlation-table-body");
+const correlationSampleInfoEl = document.getElementById("correlation-sample-info");
+const correlationWarningEl = document.getElementById("correlation-warning");
 
 // Состояние клиента
 let currentUser = null;
@@ -69,6 +78,7 @@ let stressLogs = [];
 let stressNotes = [];
 let currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let selectedDateKey = null;
+let correlationRowsCache = [];
 
 function getTopicForPrompt() {
   const t = (currentTopic || topicInput?.value || "").trim();
@@ -93,27 +103,43 @@ function showAuthView() {
   authViewEl.classList.add("active");
   chatViewEl.classList.remove("active");
   stressViewEl.classList.remove("active");
+  correlationViewEl.classList.remove("active");
 }
 
 function showChatView() {
   authViewEl.classList.remove("active");
   stressViewEl.classList.remove("active");
+  correlationViewEl.classList.remove("active");
   chatViewEl.classList.add("active");
   btnTabChat?.classList.add("active-tab");
   btnTabStress?.classList.remove("active-tab");
+  btnTabCorrelation?.classList.remove("active-tab");
 }
 
 function showStressView() {
   authViewEl.classList.remove("active");
   chatViewEl.classList.remove("active");
+  correlationViewEl.classList.remove("active");
   stressViewEl.classList.add("active");
   btnTabStress?.classList.add("active-tab");
   btnTabChat?.classList.remove("active-tab");
+  btnTabCorrelation?.classList.remove("active-tab");
   if (!selectedDateKey) {
     selectedDateKey = dateKeyFromDate(new Date());
   }
   subscribeToSelectedDayNotes();
   renderCalendar();
+}
+
+async function showCorrelationView() {
+  authViewEl.classList.remove("active");
+  chatViewEl.classList.remove("active");
+  stressViewEl.classList.remove("active");
+  correlationViewEl.classList.add("active");
+  btnTabCorrelation?.classList.add("active-tab");
+  btnTabChat?.classList.remove("active-tab");
+  btnTabStress?.classList.remove("active-tab");
+  await recomputeCorrelationAnalysis();
 }
 
 // === Авторизация ===
@@ -260,8 +286,13 @@ function scheduleSaveChatSettings() {
 roleSelect.addEventListener("change", scheduleSaveChatSettings);
 topicInput.addEventListener("input", scheduleSaveChatSettings);
 btnTabStress?.addEventListener("click", () => showStressView());
-btnStressBack?.addEventListener("click", () => showChatView());
+btnTabCorrelation?.addEventListener("click", () => showCorrelationView());
+btnStressToChat?.addEventListener("click", () => showChatView());
+btnStressToCorrelation?.addEventListener("click", () => showCorrelationView());
+btnCorrelationToChat?.addEventListener("click", () => showChatView());
+btnCorrelationToStress?.addEventListener("click", () => showStressView());
 btnTabChat?.addEventListener("click", () => showChatView());
+btnRecomputeCorrelation?.addEventListener("click", () => recomputeCorrelationAnalysis());
 
 function renderChats(chats) {
   chatsListEl.innerHTML = "";
@@ -518,7 +549,7 @@ messageForm.addEventListener("submit", async (e) => {
       createdAt: now,
     });
 
-    await analyzeAndSaveStress(text);
+    await analyzeAndSaveStress(text, { signalType: "chat" });
 
     try {
       const chatRef = db.collection("chats").doc(currentChatId);
@@ -541,15 +572,16 @@ messageForm.addEventListener("submit", async (e) => {
     // 2. Получаем ответ ИИ
     let recent = [{ role: "user", content: text }];
     try {
-      recent = await fetchRecentMessagesForAi(currentChatId, 12);
+      recent = await fetchRecentMessagesForAi(currentChatId, 60);
     } catch (e) {
       console.warn("Failed to fetch recent messages for AI context:", e);
     }
+    const payloadMessages = buildConversationForAi(recent);
 
     const aiReply = await callAiApi({
       role,
       topic: getTopicForPrompt(),
-      messages: recent,
+      messages: payloadMessages,
     });
 
     const replyText =
@@ -645,6 +677,39 @@ async function fetchRecentMessagesForAi(chatId, limitCount = 20) {
       role: m.sender === "user" ? "user" : "assistant",
       content: m.text,
     }));
+}
+
+function buildConversationForAi(messages) {
+  if (!Array.isArray(messages) || !messages.length) return [];
+  // Короткая "память" по старой части диалога, чтобы ответы были связнее.
+  const history = messages.slice(0, -18);
+  const recent = messages.slice(-18);
+  if (!history.length) return recent;
+
+  const memoryLines = [];
+  for (const m of history) {
+    const text = String(m.content || "").trim();
+    if (!text) continue;
+    if (m.role === "user") {
+      memoryLines.push(`Пользователь: ${text}`);
+    } else if (m.role === "assistant") {
+      memoryLines.push(`Собеседник: ${text}`);
+    }
+  }
+
+  const memoryText = memoryLines.slice(-14).join("\n");
+  if (!memoryText) return recent;
+
+  return [
+    {
+      role: "system",
+      content:
+        "Память диалога (сжатая, из более ранних сообщений):\n" +
+        memoryText +
+        "\nИспользуй это как контекст, чтобы сохранить связанность разговора.",
+    },
+    ...recent,
+  ];
 }
 
 function dateKeyFromDate(d) {
@@ -770,6 +835,7 @@ btnSaveDayNote?.addEventListener("click", async () => {
       createdAt: new Date(),
     };
     await db.collection("stress_notes").add(payload);
+    await analyzeAndSaveStress(text, { targetDateKey: selectedDateKey, signalType: "note" });
     dayNoteInput.value = "";
   } catch (e) {
     console.error("save day note failed", e);
@@ -777,7 +843,54 @@ btnSaveDayNote?.addEventListener("click", async () => {
   }
 });
 
-async function analyzeAndSaveStress(text) {
+function getCriticalStressOverride(text) {
+  const t = String(text || "").toLowerCase();
+  const criticalPhrases = [
+    "хочу умереть",
+    "не хочу жить",
+    "покончить с собой",
+    "суицид",
+    "самоубий",
+    "лучше бы меня не было",
+    "не вижу смысла жить",
+  ];
+  if (criticalPhrases.some((p) => t.includes(p))) {
+    return { score: 0.98, level: "high", reason: "critical_phrase" };
+  }
+  return null;
+}
+
+function getHeuristicAdjustment(text) {
+  const t = String(text || "").toLowerCase();
+  const intense = ["паника", "ужас", "срыв", "невыносимо", "давит", "тревога", "тяжело"];
+  const positive = [
+    "все хорошо",
+    "всё хорошо",
+    "мне спокойно",
+    "я в порядке",
+    "я рада",
+    "я рад",
+    "мир прекрасен",
+    "мир красив",
+    "я счастлива",
+    "я счастлив",
+    "у меня хорошая мама",
+    "у меня хорошая семья",
+    "я чувствую себя хорошо",
+    "люблю",
+    "прекрасно",
+    "замечательно",
+    "радост",
+    "благодар",
+  ];
+
+  if (intense.some((w) => t.includes(w))) return 0.15;
+  if (positive.some((w) => t.includes(w))) return -0.3;
+  return 0;
+}
+
+async function analyzeAndSaveStress(text, options = {}) {
+  const { targetDateKey = null, signalType = "chat" } = options;
   if (!currentUser) return;
   try {
     const response = await fetch(`${BACKEND_URL}/api/stress/predict`, {
@@ -787,16 +900,36 @@ async function analyzeAndSaveStress(text) {
     });
     if (!response.ok) return;
     const data = await response.json();
-    const today = dateKeyFromDate(new Date());
-    const docId = `${currentUser.uid}_${today}`;
-    const existing = getStressForDay(today);
+    const dateKey = targetDateKey || dateKeyFromDate(new Date());
+    const docId = `${currentUser.uid}_${dateKey}`;
+    const existingLocal = getStressForDay(dateKey);
+    const existingSnap = await db.collection("stress_logs").doc(docId).get();
+    const existingRemote = existingSnap.exists ? existingSnap.data() : null;
+    const existing = existingRemote || existingLocal;
     const score = Number(data.score || 0);
-    const level = data.level || "low";
     const previousScore = Number(existing?.score || 0);
-    // Сглаживание: хорошие сообщения могут понижать уровень, тревожные — повышать.
-    const mergedScore = existing
-      ? Math.min(1, Math.max(0, previousScore * 0.7 + score * 0.3))
-      : Math.min(1, Math.max(0, score));
+
+    const critical = getCriticalStressOverride(text);
+    let mergedScore = 0;
+    if (critical) {
+      mergedScore = Math.max(previousScore, critical.score);
+    } else {
+      // заметки должны заметно сильнее влиять, чем обычные сообщения
+      const baseAlpha = signalType === "note" ? 0.9 : 0.45;
+      const adjustment = getHeuristicAdjustment(text);
+      const adjustedScore = Math.min(1, Math.max(0, score + adjustment));
+      mergedScore = existing
+        ? Math.min(1, Math.max(0, previousScore * (1 - baseAlpha) + adjustedScore * baseAlpha))
+        : Math.min(1, Math.max(0, adjustedScore));
+
+      // Явно позитивные заметки должны уводить день вниз заметнее.
+      if (signalType === "note" && adjustment <= -0.3) {
+        mergedScore = Math.min(mergedScore, Math.max(0.08, previousScore - 0.22));
+      } else if (adjustment <= -0.3 && mergedScore < 0.42) {
+        mergedScore = Math.min(mergedScore, 0.32);
+      }
+    }
+
     const merged = {
       score: mergedScore,
       level: mergedScore >= 0.65 ? "high" : mergedScore >= 0.35 ? "medium" : "low",
@@ -804,7 +937,7 @@ async function analyzeAndSaveStress(text) {
     await db.collection("stress_logs").doc(docId).set(
       {
         userId: currentUser.uid,
-        date: today,
+        date: dateKey,
         score: merged.score,
         level: merged.level,
         updatedAt: new Date(),
@@ -862,6 +995,231 @@ function renderSelectedDayNotes() {
     li.appendChild(time);
     dayNotesListEl.appendChild(li);
   });
+}
+
+function toTimestamp(value) {
+  if (!value) return null;
+  if (value.toDate) return value.toDate().getTime();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function tokenizeWords(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function pearsonCorrelation(x, y) {
+  if (!x.length || x.length !== y.length) return null;
+  const n = x.length;
+  const meanX = x.reduce((a, b) => a + b, 0) / n;
+  const meanY = y.reduce((a, b) => a + b, 0) / n;
+  let num = 0;
+  let denX = 0;
+  let denY = 0;
+  for (let i = 0; i < n; i += 1) {
+    const dx = x[i] - meanX;
+    const dy = y[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  const den = Math.sqrt(denX * denY);
+  if (!den) return null;
+  return num / den;
+}
+
+function rank(values) {
+  const indexed = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+  const ranks = new Array(values.length);
+  let i = 0;
+  while (i < indexed.length) {
+    let j = i;
+    while (j + 1 < indexed.length && indexed[j + 1].v === indexed[i].v) j += 1;
+    const avgRank = (i + j + 2) / 2; // 1-based
+    for (let k = i; k <= j; k += 1) ranks[indexed[k].i] = avgRank;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+function spearmanCorrelation(x, y) {
+  if (!x.length || x.length !== y.length) return null;
+  return pearsonCorrelation(rank(x), rank(y));
+}
+
+function fmtCorr(value) {
+  if (value === null || Number.isNaN(value)) return "—";
+  return value.toFixed(3);
+}
+
+async function recomputeCorrelationAnalysis() {
+  if (!currentUser || !correlationTableBodyEl) return;
+  correlationTableBodyEl.innerHTML = `<tr><td colspan="3">Считаем...</td></tr>`;
+  try {
+    const chatsSnap = await db.collection("chats").where("userId", "==", currentUser.uid).get();
+    const notesSnap = await db.collection("stress_notes").where("userId", "==", currentUser.uid).get();
+    const chatDocs = [];
+    chatsSnap.forEach((d) => chatDocs.push({ id: d.id, ...d.data() }));
+
+    const dayStats = new Map();
+
+    for (const chat of chatDocs) {
+      const msgSnap = await db
+        .collection("chats")
+        .doc(chat.id)
+        .collection("messages")
+        .orderBy("createdAt", "asc")
+        .get();
+      const msgs = [];
+      msgSnap.forEach((d) => msgs.push(d.data()));
+
+      let prevAiTs = null;
+      for (const msg of msgs) {
+        const ts = toTimestamp(msg.createdAt);
+        if (!ts) continue;
+        const dateKey = dateKeyFromDate(new Date(ts));
+        if (!dayStats.has(dateKey)) {
+          dayStats.set(dateKey, {
+            userMessages: 0,
+            charSum: 0,
+            tokenCount: 0,
+            uniqueWords: new Set(),
+            hourSum: 0,
+            responseCount: 0,
+            responseSecondsSum: 0,
+          });
+        }
+        const stat = dayStats.get(dateKey);
+        if (msg.sender === "user") {
+          const text = String(msg.text || "");
+          const tokens = tokenizeWords(text);
+          stat.userMessages += 1;
+          stat.charSum += text.length;
+          stat.tokenCount += tokens.length;
+          tokens.forEach((t) => stat.uniqueWords.add(t));
+          stat.hourSum += new Date(ts).getHours();
+          if (prevAiTs) {
+            const sec = Math.max(0, (ts - prevAiTs) / 1000);
+            stat.responseCount += 1;
+            stat.responseSecondsSum += sec;
+          }
+        } else if (msg.sender === "ai") {
+          prevAiTs = ts;
+        }
+      }
+    }
+
+    // Учитываем заметки как дополнительный текстовый источник состояния.
+    notesSnap.forEach((doc) => {
+      const note = doc.data() || {};
+      const ts = toTimestamp(note.createdAt);
+      const text = String(note.text || "");
+      if (!ts || !text.trim()) return;
+      const dateKey = note.date || dateKeyFromDate(new Date(ts));
+      if (!dayStats.has(dateKey)) {
+        dayStats.set(dateKey, {
+          userMessages: 0,
+          charSum: 0,
+          tokenCount: 0,
+          uniqueWords: new Set(),
+          hourSum: 0,
+          responseCount: 0,
+          responseSecondsSum: 0,
+        });
+      }
+      const stat = dayStats.get(dateKey);
+      const tokens = tokenizeWords(text);
+      stat.userMessages += 1;
+      stat.charSum += text.length;
+      stat.tokenCount += tokens.length;
+      tokens.forEach((t) => stat.uniqueWords.add(t));
+      stat.hourSum += new Date(ts).getHours();
+      // response speed не считаем по заметкам, только по диалогу.
+    });
+
+    const rows = [];
+    for (const log of stressLogs) {
+      const dateKey = log.date;
+      const stat = dayStats.get(dateKey);
+      if (!stat || stat.userMessages === 0) continue;
+      const avgLen = stat.charSum / stat.userMessages;
+      const lexDiv = stat.tokenCount ? stat.uniqueWords.size / stat.tokenCount : 0;
+      const avgHour = stat.hourSum / stat.userMessages;
+      const avgRespSec =
+        stat.responseCount > 0 ? stat.responseSecondsSum / stat.responseCount : 0;
+      rows.push({
+        date: dateKey,
+        stress: Number(log.score || 0),
+        avgMessageLength: avgLen,
+        lexicalDiversity: lexDiv,
+        activeHour: avgHour,
+        responseSpeed: avgRespSec > 0 ? 1 / avgRespSec : 0,
+      });
+    }
+
+    correlationRowsCache = rows;
+    renderCorrelationTable(rows);
+  } catch (e) {
+    correlationTableBodyEl.innerHTML = `<tr><td colspan="3">Ошибка анализа: ${escapeHtml(
+      e?.message || "unknown"
+    )}</td></tr>`;
+  }
+}
+
+function renderCorrelationTable(rows) {
+  const tbody = correlationTableBodyEl;
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="3">Недостаточно данных для анализа</td></tr>`;
+    if (correlationSampleInfoEl) {
+      correlationSampleInfoEl.textContent = "Нужно больше дней с перепиской и оценкой стресса.";
+    }
+    if (correlationWarningEl) {
+      correlationWarningEl.classList.remove("hidden");
+      correlationWarningEl.textContent =
+        "Недостаточно данных: нужно минимум 5 дней с сообщениями и стресс-оценкой.";
+    }
+    return;
+  }
+  if (correlationWarningEl) {
+    if (rows.length < 5) {
+      correlationWarningEl.classList.remove("hidden");
+      correlationWarningEl.textContent =
+        "Внимание: выборка слишком маленькая, коэффициенты могут быть нестабильными.";
+    } else {
+      correlationWarningEl.classList.add("hidden");
+      correlationWarningEl.textContent = "";
+    }
+  }
+  const stress = rows.map((r) => r.stress);
+  const factors = [
+    { key: "avgMessageLength", label: "Длина сообщений" },
+    { key: "lexicalDiversity", label: "Лексическое разнообразие" },
+    { key: "activeHour", label: "Время суток активности" },
+    { key: "responseSpeed", label: "Скорость ответа пользователя" },
+  ];
+  const corrRows = [];
+  tbody.innerHTML = "";
+  for (const f of factors) {
+    const x = rows.map((r) => r[f.key]);
+    const p = rows.length >= 5 ? pearsonCorrelation(x, stress) : null;
+    const s = rows.length >= 5 ? spearmanCorrelation(x, stress) : null;
+    corrRows.push({ factor: f.label, pearson: p, spearman: s });
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${f.label}</td>
+      <td>${fmtCorr(p)}</td>
+      <td>${fmtCorr(s)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  if (correlationSampleInfoEl) {
+    correlationSampleInfoEl.textContent = `Дней в анализе: ${rows.length}.`;
+  }
 }
 
 // === Вызов бэка (OpenRouter) ===

@@ -771,3 +771,46 @@ select:focus {
 .dot.medium { background: #facc15; }
 .dot.high { background: #f87171; }
 
+.correlation-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 14px;
+  padding: 14px;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.muted-text {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.corr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.corr-table th,
+.corr-table td {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 8px 6px;
+  text-align: left;
+}
+
+.corr-table th {
+  color: #bbf7d0;
+}
+
+.warning-text {
+  color: #fbbf24;
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+

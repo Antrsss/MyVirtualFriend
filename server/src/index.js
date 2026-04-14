@@ -10,6 +10,14 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const DEFAULT_MODEL = process.env.OPENROUTER_MODEL || "openrouter/auto";
 
+function isMostlyRussian(text) {
+  const s = String(text || "");
+  const letters = s.match(/[A-Za-zА-Яа-яЁё]/g) || [];
+  if (!letters.length) return true;
+  const ru = s.match(/[А-Яа-яЁё]/g) || [];
+  return ru.length / letters.length >= 0.6;
+}
+
 app.use(
   cors({
     origin: true,
@@ -44,10 +52,26 @@ app.post("/api/chat", async (req, res) => {
     // Вставляем системное сообщение в начало
     const messages = [{ role: "system", content: systemPrompt }, ...normalized];
 
-    const text = await openRouterService.processChat(
+    let text = await openRouterService.processChat(
       messages,
       model || DEFAULT_MODEL
     );
+
+    // Защита от случайных ответов на английском
+    if (!isMostlyRussian(text)) {
+      const retryMessages = [
+        ...messages,
+        {
+          role: "system",
+          content:
+            "Предыдущий ответ был не на русском. Переформулируй тот же ответ ТОЛЬКО на русском языке, естественно и без потери смысла.",
+        },
+      ];
+      text = await openRouterService.processChat(
+        retryMessages,
+        model || DEFAULT_MODEL
+      );
+    }
 
     return res.json({ text });
   } catch (e) {

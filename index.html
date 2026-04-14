@@ -57,6 +57,7 @@
           <div class="view-switch">
             <button id="btn-tab-chat" class="secondary-btn active-tab">Чат</button>
             <button id="btn-tab-stress" class="secondary-btn">Стресс-календарь</button>
+            <button id="btn-tab-correlation" class="secondary-btn">Корреляции</button>
           </div>
           <div class="role-select">
             <label for="role">Роль собеседника:</label>
@@ -118,7 +119,10 @@
       <div id="stress-view" class="view">
         <header class="top-bar">
           <h2>Календарь стресса</h2>
-          <button id="btn-stress-back" class="secondary-btn">Назад к чату</button>
+          <div class="view-switch">
+            <button id="btn-stress-to-chat" class="secondary-btn">К чату</button>
+            <button id="btn-stress-to-correlation" class="secondary-btn">К корреляциям</button>
+          </div>
         </header>
         <main class="stress-layout">
           <section class="stress-card">
@@ -143,6 +147,41 @@
               <h4>Заметки за день</h4>
               <ul id="day-notes-list" class="day-notes-list"></ul>
             </div>
+          </section>
+        </main>
+      </div>
+
+      <div id="correlation-view" class="view">
+        <header class="top-bar">
+          <h2>Корреляционный анализ факторов</h2>
+          <div class="view-switch">
+            <button id="btn-correlation-to-chat" class="secondary-btn">К чату</button>
+            <button id="btn-correlation-to-stress" class="secondary-btn">К календарю</button>
+          </div>
+        </header>
+        <main class="correlation-layout">
+          <section class="stress-card">
+            <h3>Что анализируем</h3>
+            <p class="muted-text">
+              Связь между уровнем стресса и факторами: длина сообщений, лексическое разнообразие,
+              время суток активности и скорость ответа пользователя.
+            </p>
+            <button id="btn-recompute-correlation" class="primary-btn">Пересчитать анализ</button>
+            <p id="correlation-sample-info" class="muted-text"></p>
+          </section>
+          <section class="stress-card">
+            <h3>Коэффициенты Пирсона / Спирмена</h3>
+            <p id="correlation-warning" class="warning-text hidden"></p>
+            <table class="corr-table">
+              <thead>
+                <tr>
+                  <th>Фактор</th>
+                  <th>Пирсон</th>
+                  <th>Спирмен</th>
+                </tr>
+              </thead>
+              <tbody id="correlation-table-body"></tbody>
+            </table>
           </section>
         </main>
       </div>
