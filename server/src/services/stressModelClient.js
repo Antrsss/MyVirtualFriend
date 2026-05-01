@@ -52,7 +52,6 @@ class StressModelClient {
           else pending.reject(new Error(msg.error || "stress model error"));
         }
       } catch (_e) {
-        // ignore non-json lines from model training logs
       }
     }
   }

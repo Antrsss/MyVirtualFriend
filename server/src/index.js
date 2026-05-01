@@ -30,7 +30,6 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-// Основной endpoint для ответа ИИ
 app.post("/api/chat", async (req, res) => {
   try {
     const parsed = chatRequestSchema.safeParse(req.body);
@@ -49,7 +48,6 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "No valid messages" });
     }
 
-    // Вставляем системное сообщение в начало
     const messages = [{ role: "system", content: systemPrompt }, ...normalized];
 
     let text = await openRouterService.processChat(
@@ -57,7 +55,6 @@ app.post("/api/chat", async (req, res) => {
       model || DEFAULT_MODEL
     );
 
-    // Защита от случайных ответов на английском
     if (!isMostlyRussian(text)) {
       const retryMessages = [
         ...messages,
